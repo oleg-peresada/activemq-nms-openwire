@@ -14,6 +14,7 @@ internal sealed class ConnectionHandler : IAsyncDisposable
     private PipeReader? _pipeReader;
 
     private Task? _backgroundLoop;
+    private Task? _mainLoop;
     
     public ConnectionHandler()
     {
@@ -29,22 +30,57 @@ internal sealed class ConnectionHandler : IAsyncDisposable
         _channelReader = channel.Reader;
     }
 
-    public async Task ConnectAsync()
+    public async Task ConnectAsync(CancellationToken cancellationToken = default)
     {
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        await socket.ConnectAsync(IPAddress.Parse("127.0.0.1"), 61616);
+        await socket.ConnectAsync(IPAddress.Parse("127.0.0.1"), 61616, cancellationToken);
 
         var stream = new NetworkStream(socket, FileAccess.ReadWrite);
         
         _pipeWriter = PipeWriter.Create(stream, new StreamPipeWriterOptions());
         _pipeReader = PipeReader.Create(stream, new StreamPipeReaderOptions());
         
-        _backgroundLoop = Task.Run(LoopAsync);
+        _backgroundLoop = Task.Run(() => LoopAsync(), cancellationToken);
+        _mainLoop = Task.Run(() => LoopReadAsync(), cancellationToken);
     }
 
-    private Task LoopAsync()
+    private void LoopReadAsync()
     {
-        return Task.CompletedTask;
+        while (_pipeReader.TryRead(out ReadResult result))
+        {
+            var a = "";
+        }
+    }
+
+    private async ValueTask LoopAsync()
+    {
+        try
+        {
+            if (_pipeWriter is null)
+            {
+                throw new InvalidOperationException("Pipe writer closed");
+            }
+
+            while (await _channelReader.WaitToReadAsync().ConfigureAwait(false))
+            {
+                while (_channelReader.TryRead(out ReadOnlyMemory<byte> message))
+                {
+                    await _pipeWriter.WriteAsync(message).ConfigureAwait(false);
+                }
+
+                await _pipeWriter.FlushAsync().ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            //todo log
+            throw;
+        }
+    }
+
+    public ValueTask WriteMessage(ReadOnlyMemory<byte> message)
+    {
+        return _channelWriter.WriteAsync(message);
     }
 
     public async ValueTask DisposeAsync()

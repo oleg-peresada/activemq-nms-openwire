@@ -1,0 +1,7 @@
+version: '3.1'
+
+services:
+  artemis:
+    image: peresadaoleg/artemis-peresada-oleg:2.33.0
+    ports:
+      - '61616:61616'
