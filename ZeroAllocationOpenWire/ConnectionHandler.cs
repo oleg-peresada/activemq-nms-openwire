@@ -74,7 +74,6 @@ internal sealed class ConnectionHandler : IAsyncDisposable
             using BinaryReader reader = new(new MemoryStream(arr));
 
             var r = wire.Unmarshal(reader);
-            
             _pipeReader.AdvanceTo(buffer.End);
         }
     }

@@ -62,10 +62,12 @@ writer.Flush();
 await handler.WriteMessage(new ReadOnlyMemory<byte>(mem.ToArray()));
 
 
-// var mem1 = new MemoryStream();
-// await using var writer1 = new BinaryWriter(mem1);
-// wire.Marshal(ci, writer1);
-// await handler.WriteMessage(new ReadOnlyMemory<byte>(mem1.ToArray()));
+var mem1 = new MemoryStream();
+await using var writer1 = new BinaryWriter(mem1);
+wire.Marshal(ci, writer1);
+writer1.Flush();
+
+await handler.WriteMessage(new ReadOnlyMemory<byte>(mem1.ToArray()));
 
 // wire.Marshal(command, writer);
 // writer.Flush();
