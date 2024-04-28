@@ -1,7 +1,9 @@
+using System.Buffers;
 using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Channels;
+using Apache.NMS.ActiveMQ.OpenWire;
 
 namespace ZeroAllocationOpenWire;
 
@@ -15,6 +17,8 @@ internal sealed class ConnectionHandler : IAsyncDisposable
 
     private Task? _backgroundLoop;
     private Task? _mainLoop;
+
+    private volatile bool _closed;
     
     public ConnectionHandler()
     {
@@ -35,20 +39,43 @@ internal sealed class ConnectionHandler : IAsyncDisposable
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         await socket.ConnectAsync(IPAddress.Parse("127.0.0.1"), 61616, cancellationToken);
 
-        var stream = new NetworkStream(socket, FileAccess.ReadWrite);
+        var stream = new NetworkStream(socket);
         
-        _pipeWriter = PipeWriter.Create(stream, new StreamPipeWriterOptions());
-        _pipeReader = PipeReader.Create(stream, new StreamPipeReaderOptions());
+        stream.ReadTimeout = (int)TimeSpan.FromSeconds(30).TotalMilliseconds;
+        stream.WriteTimeout = (int)TimeSpan.FromSeconds(30).TotalMilliseconds;
         
-        _backgroundLoop = Task.Run(() => LoopAsync(), cancellationToken);
-        _mainLoop = Task.Run(() => LoopReadAsync(), cancellationToken);
+        _pipeWriter = PipeWriter.Create(stream);
+        _pipeReader = PipeReader.Create(stream);
+        
+        _mainLoop = Task.Run(LoopReadAsync, cancellationToken);
+        _backgroundLoop = Task.Run(LoopAsync, cancellationToken);
     }
 
-    private void LoopReadAsync()
+    private async Task LoopReadAsync()
     {
-        while (_pipeReader.TryRead(out ReadResult result))
+        if (_pipeReader == null)
         {
-            var a = "";
+            return;
+        }
+
+        while (!_closed)
+        {
+            var result  = await _pipeReader.ReadAsync();
+            if (result.IsCompleted)
+            {
+                _closed = true;
+                return;
+            }
+
+            var buffer = result.Buffer;
+            var arr = buffer.ToArray();
+            
+            var wire = new OpenWireFormat();
+            using BinaryReader reader = new(new MemoryStream(arr));
+
+            var r = wire.Unmarshal(reader);
+            
+            _pipeReader.AdvanceTo(buffer.End);
         }
     }
 
